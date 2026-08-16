@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Gauge, Plus, TrendingDown, TrendingUp, Zap } from "lucide-react";
+import { ArrowRight, Gauge, Megaphone, Plus, Trash2, TrendingUp, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,10 +13,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { AnimatedNumber } from "@/components/room/AnimatedNumber";
 import { UserAvatar } from "@/components/room/UserAvatar";
 import { useSession } from "@/hooks/use-session";
-import { useActivity, useAddExpense, useExpenses, useReadings } from "@/lib/data";
+import {
+  useActivity,
+  useAddExpense,
+  useAddNotice,
+  useDeleteNotice,
+  useExpenses,
+  useNotices,
+  useReadings,
+  type Profile,
+} from "@/lib/data";
 import {
   CATEGORIES,
   MEMBERS,
@@ -27,7 +37,9 @@ import {
   readingDue,
   shortDate,
 } from "@/lib/room";
-import { inCycle, splitsOwedByMe, splitsOwedToMe, sumSplits } from "@/lib/derive";
+import { inCycle, pendingDebts } from "@/lib/derive";
+import { netBalances } from "@/lib/settle";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -59,8 +71,10 @@ function Dashboard() {
   const cycle = useMemo(() => cycleProgress(), []);
   const fixed = useMemo(() => fixedShare(readings), [readings]);
 
-  const owedByMe = userId ? splitsOwedByMe(expenses, userId) : [];
-  const owedToMe = userId ? splitsOwedToMe(expenses, userId) : [];
+  const debts = useMemo(() => pendingDebts(expenses), [expenses]);
+  const net = useMemo(() => netBalances(debts), [debts]);
+  const myNet = userId ? (net.get(userId) ?? 0) : 0;
+
   const cycleSpend = expenses
     .filter((e) => inCycle(e.created_at, cycle.start, cycle.end))
     .reduce((s, e) => s + Number(e.amount), 0);
@@ -117,28 +131,33 @@ function Dashboard() {
         </p>
       </section>
 
-      {/* Stats */}
-      <section className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-3xl border bg-card p-4 shadow-soft">
+      {/* Net balance + cycle spend — this is the single netted figure across every roommate,
+          not a sum of each individual IOU (see Settle Up for the full breakdown). */}
+      <section className="grid gap-3 sm:grid-cols-2">
+        <Link
+          to="/balances"
+          className="rounded-3xl border bg-card p-4 shadow-soft transition-shadow hover:shadow-float"
+        >
           <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-            <TrendingDown className="size-3.5" /> You owe
+            <TrendingUp className="size-3.5" /> Net balance
           </p>
           <AnimatedNumber
-            value={sumSplits(owedByMe)}
-            className="mt-1 block font-display text-2xl font-extrabold text-overdue"
+            value={Math.abs(myNet)}
+            className={cn(
+              "mt-1 block font-display text-2xl font-extrabold",
+              Math.abs(myNet) <= 0.5 && "text-muted-foreground",
+              myNet > 0.5 && "text-paid-foreground",
+              myNet < -0.5 && "text-overdue",
+            )}
           />
-          <p className="text-xs text-muted-foreground">{owedByMe.length} open splits</p>
-        </div>
-        <div className="rounded-3xl border bg-card p-4 shadow-soft">
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-            <TrendingUp className="size-3.5" /> Owed to you
+          <p className="text-xs text-muted-foreground">
+            {Math.abs(myNet) <= 0.5
+              ? "You're settled up"
+              : myNet > 0
+                ? "owed to you, net of everything"
+                : "you owe, net of everything"}
           </p>
-          <AnimatedNumber
-            value={sumSplits(owedToMe)}
-            className="mt-1 block font-display text-2xl font-extrabold text-paid-foreground"
-          />
-          <p className="text-xs text-muted-foreground">{owedToMe.length} awaiting</p>
-        </div>
+        </Link>
         <div className="rounded-3xl border bg-card p-4 shadow-soft">
           <p className="text-xs font-semibold text-muted-foreground">Room spend this cycle</p>
           <AnimatedNumber
@@ -187,14 +206,11 @@ function Dashboard() {
 
       <QuickAdd userId={userId} userName={profile?.name ?? "Someone"} memberIds={profiles.map((p) => p.id)} />
 
+      <NoticeBoardCard userId={userId} userName={profile?.name ?? "Someone"} profiles={profiles} />
+
       {/* Recent activity */}
       <section className="rounded-3xl border bg-card p-5 shadow-card">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-base font-bold">Recent activity</h2>
-          <Link to="/history" className="text-xs font-semibold text-primary">
-            All history →
-          </Link>
-        </div>
+        <h2 className="font-display text-base font-bold">Recent activity</h2>
         {activity.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">Nothing logged yet.</p>
         ) : (
@@ -316,6 +332,93 @@ function QuickAdd({
       <p className="mt-2 text-xs text-muted-foreground">
         Splits equally — {inr(per)} each across {memberIds.length || MEMBERS} roommates.
       </p>
+    </section>
+  );
+}
+
+function NoticeBoardCard({
+  userId,
+  userName,
+  profiles,
+}: {
+  userId: string | null;
+  userName: string;
+  profiles: Profile[];
+}) {
+  const { data: notices = [] } = useNotices();
+  const addNotice = useAddNotice(userId ?? "", userName);
+  const deleteNotice = useDeleteNotice();
+  const [message, setMessage] = useState("");
+
+  const submit = () => {
+    const text = message.trim();
+    if (!text) return;
+    addNotice.mutate(text, {
+      onSuccess: () => {
+        setMessage("");
+        toast.success("Notice posted");
+      },
+      onError: () => toast.error("Couldn't post that notice."),
+    });
+  };
+
+  return (
+    <section className="rounded-3xl border bg-card p-5 shadow-card">
+      <h2 className="flex items-center gap-2 font-display text-base font-bold">
+        <Megaphone className="size-4 text-primary" /> Notice board
+      </h2>
+      <Textarea
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        placeholder="e.g. Water tank cleaning on Sunday morning"
+        rows={2}
+        className="mt-3 rounded-2xl"
+      />
+      <div className="mt-2 flex justify-end">
+        <Button
+          size="sm"
+          className="rounded-full"
+          disabled={!message.trim() || addNotice.isPending}
+          onClick={submit}
+        >
+          Post
+        </Button>
+      </div>
+
+      {notices.length === 0 ? (
+        <p className="mt-3 py-4 text-center text-sm text-muted-foreground">No notices yet.</p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {notices.slice(0, 4).map((n) => {
+            const author = profiles.find((p) => p.id === n.author_id);
+            return (
+              <li key={n.id} className="flex items-start gap-3 rounded-2xl bg-surface px-3 py-2.5">
+                <UserAvatar profile={author} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold">
+                    {n.author_id === userId ? "You" : (author?.name ?? "Someone")}
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      {shortDate(n.created_at)}
+                    </span>
+                  </p>
+                  <p className="mt-0.5 whitespace-pre-wrap text-sm leading-snug">{n.message}</p>
+                </div>
+                {n.author_id === userId && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Delete notice"
+                    className="size-7 shrink-0 rounded-full text-muted-foreground hover:text-destructive"
+                    onClick={() => deleteNotice.mutate(n.id)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }

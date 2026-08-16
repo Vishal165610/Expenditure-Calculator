@@ -7,17 +7,13 @@ import {
   ClipboardList,
   Home,
   LogOut,
-  Megaphone,
   Moon,
   Plus,
   Receipt,
   Scale,
-  History as HistoryIcon,
   Sun,
   MoreHorizontal,
-  Wallet,
   UserCog,
-  type LucideIcon,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -28,18 +24,18 @@ import { useSession, useTheme } from "@/hooks/use-session";
 import { useMarkNotificationsRead, useNotifications } from "@/lib/data";
 import { cn } from "@/lib/utils";
 
-const NAV: Array<{ to: string; label: string; icon: LucideIcon }> = [
+// Trimmed from 9 to 6 destinations: Notice Board now lives on Dashboard,
+// History is a tab on Analytics, and Personal Expenses is a tab on Ledger ("Expenses").
+const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: Home },
   { to: "/bills", label: "Room Bills", icon: Receipt },
-  { to: "/ledger", label: "Common Ledger", icon: ClipboardList },
+  { to: "/ledger", label: "Expenses", icon: ClipboardList },
   { to: "/balances", label: "Settle Up", icon: Scale },
   { to: "/analytics", label: "Analytics", icon: ChartPie },
-  { to: "/notices", label: "Notice Board", icon: Megaphone },
-  { to: "/history", label: "History", icon: HistoryIcon },
-  { to: "/personal-expenses", label: "My Expenses", icon: Wallet },
-];
+  { to: "/profile", label: "Profile", icon: UserCog },
+] as const;
 
-const MOBILE_PRIMARY: string[] = ["/dashboard", "/bills", "/balances"];
+const MOBILE_PRIMARY = ["/dashboard", "/bills", "/balances"];
 
 function NotificationBell() {
   const { data: notifications = [] } = useNotifications();
@@ -48,7 +44,7 @@ function NotificationBell() {
 
   return (
     <Popover
-      onOpenChange={(open: boolean) => {
+      onOpenChange={(open) => {
         if (open && unread.length) markRead.mutate(unread.map((n) => n.id));
       }}
     >
@@ -125,7 +121,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {NAV.map(({ to, label, icon: Icon }) => (
             <Link
               key={to}
-              to={to as any}
+              to={to}
               className={cn(
                 "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-accent-foreground",
                 pathname === to && "bg-primary/10 text-primary",
@@ -137,14 +133,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        <Link to={"/add-expense" as any} className="mt-4">
+        <Link to="/add-expense" className="mt-4">
           <Button className="w-full rounded-xl shadow-float">
             <Plus className="size-4" /> Add expense
           </Button>
         </Link>
 
         <Link
-          to={"/profile" as any}
+          to="/profile"
           className="mt-4 flex items-center gap-3 rounded-xl bg-muted/60 px-3 py-2.5 transition-colors hover:bg-accent/60"
         >
           <UserAvatar profile={profile} />
@@ -181,7 +177,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
           </Button>
           <NotificationBell />
-          <Link to={"/profile" as any} className="lg:hidden">
+          <Link to="/profile" className="lg:hidden">
             <UserAvatar profile={profile} size="sm" />
           </Link>
         </div>
@@ -211,7 +207,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ))}
 
           <div className="flex justify-center">
-            <Link to={"/add-expense" as any} aria-label="Add expense">
+            <Link to="/add-expense" aria-label="Add expense">
               <span className="mb-2 grid size-13 place-items-center rounded-2xl bg-gradient-brand text-primary-foreground shadow-float">
                 <Plus className="size-6" />
               </span>
@@ -234,7 +230,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <MoreHorizontal className="size-5" />
               More
             </SheetTrigger>
-            <SheetContent {...({ side: "bottom", className: "rounded-t-3xl pb-8" } as any)}>
+            <SheetContent side="bottom" className="rounded-t-3xl pb-8">
               <SheetTitle className="px-1 text-base">More</SheetTitle>
               <div className="mt-2 grid gap-1">
                 {secondary.map(({ to, label, icon: Icon }) => (
@@ -248,13 +244,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     {label}
                   </Link>
                 ))}
+                <button
+                  onClick={signOut}
+                  className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-destructive hover:bg-destructive/10"
+                >
+                  <LogOut className="size-4.5" /> Sign out
+                </button>
               </div>
-              <button
-                onClick={signOut}
-                className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-destructive hover:bg-destructive/10"
-              >
-                <LogOut className="size-4.5" /> Sign out
-              </button>
             </SheetContent>
           </Sheet>
         </div>

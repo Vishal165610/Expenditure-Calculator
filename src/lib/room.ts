@@ -204,6 +204,10 @@ export function isValidUpiId(value: string) {
 /**
  * Builds a `upi://pay` deep link per the NPCI UPI linking spec.
  * Opens the Android UPI app picker (GPay / PhonePe / Paytm / etc.) when tapped from a PWA.
+ *
+ * IMPORTANT: built manually rather than via URLSearchParams. URLSearchParams percent-encodes
+ * "@" to "%40", and several UPI apps' deep-link parsers fail to decode that back — they expect
+ * `pa=name@bank` with the "@" literal, matching NPCI's own examples.
  */
 export function buildUpiLink(input: {
   payeeVpa: string;
@@ -211,12 +215,13 @@ export function buildUpiLink(input: {
   amount: number;
   note?: string;
 }) {
-  const params = new URLSearchParams({
-    pa: input.payeeVpa.trim(),
-    pn: input.payeeName,
-    am: input.amount.toFixed(2),
-    cu: "INR",
-  });
-  if (input.note) params.set("tn", input.note.slice(0, 50));
-  return `upi://pay?${params.toString()}`;
+  const pa = input.payeeVpa.trim();
+  const parts = [
+    `pa=${pa}`,
+    `pn=${encodeURIComponent(input.payeeName)}`,
+    `am=${input.amount.toFixed(2)}`,
+    `cu=INR`,
+  ];
+  if (input.note) parts.push(`tn=${encodeURIComponent(input.note.slice(0, 50))}`);
+  return `upi://pay?${parts.join("&")}`;
 }
