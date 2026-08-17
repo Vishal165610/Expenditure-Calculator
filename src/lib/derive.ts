@@ -1,4 +1,4 @@
-import type { Expense, Split } from "./data";
+import type { CreditEntry, Expense, Split } from "./data";
 import type { PendingDebt } from "./settle";
 
 /** Every unsettled split becomes an IOU from the debtor to the payer. */
@@ -77,4 +77,16 @@ export function spendByPerson(expenses: Expense[]) {
   const map = new Map<string, number>();
   for (const e of expenses) map.set(e.paid_by, (map.get(e.paid_by) ?? 0) + Number(e.amount));
   return map;
+}
+
+/**
+ * Net credit/advance balance for one user, summed from the credit ledger.
+ * Positive = they've prepaid and are owed that much back / it offsets what they owe.
+ * Negative would mean more credit was consumed than added (shouldn't normally happen
+ * if entries are only added honestly, but the math handles it either way).
+ */
+export function creditBalance(entries: CreditEntry[], userId: string) {
+  return entries
+    .filter((e) => e.user_id === userId)
+    .reduce((sum, e) => sum + Number(e.amount), 0);
 }

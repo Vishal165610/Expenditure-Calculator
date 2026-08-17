@@ -49,6 +49,30 @@ export type Database = {
           },
         ]
       }
+      credit_log: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          note: string | null
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          note?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          note?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       expense_splits: {
         Row: {
           amount_owed: number
@@ -57,6 +81,7 @@ export type Database = {
           id: string
           owed_by: string
           paid_at: string | null
+          proof_url: string | null
           requested_at: string | null
           status: string
         }
@@ -67,6 +92,7 @@ export type Database = {
           id?: string
           owed_by: string
           paid_at?: string | null
+          proof_url?: string | null
           requested_at?: string | null
           status?: string
         }
@@ -77,6 +103,7 @@ export type Database = {
           id?: string
           owed_by?: string
           paid_at?: string | null
+          proof_url?: string | null
           requested_at?: string | null
           status?: string
         }

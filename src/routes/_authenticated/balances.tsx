@@ -1,31 +1,14 @@
-/// <reference types="react" />
-import React from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { AnimatedNumber } from "@/components/room/AnimatedNumber";
 import { UserAvatar } from "@/components/room/UserAvatar";
 import { UpiPayButton } from "@/components/room/UpiPayButton";
 import { useSession } from "@/hooks/use-session";
-import { useExpenses } from "@/lib/data";
-import { pendingDebts, splitsOwedByMe, splitsOwedToMe, sumSplits } from "@/lib/derive";
+import { useCreditLog, useExpenses } from "@/lib/data";
+import { creditBalance, pendingDebts, splitsOwedByMe, splitsOwedToMe, sumSplits } from "@/lib/derive";
 import { netBalances, simplifyDebts } from "@/lib/settle";
 import { inrCompact } from "@/lib/room";
 import { cn } from "@/lib/utils";
-
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      [elemName: string]: any;
-    }
-  }
-}
-
-interface Profile {
-  id: string;
-  name: string;
-  avatar_color: string;
-  upi_id?: string | null;
-}
 
 export const Route = createFileRoute("/_authenticated/balances")({
   head: () => ({
@@ -50,14 +33,14 @@ export const Route = createFileRoute("/_authenticated/balances")({
 function BalancesPage() {
   const { userId, profiles } = useSession();
   const { data: expenses = [] } = useExpenses();
+  const { data: creditEntries = [] } = useCreditLog();
 
   const debts = pendingDebts(expenses);
   const transfers = simplifyDebts(debts);
   const net = netBalances(debts);
   const owedByMe = sumSplits(splitsOwedByMe(expenses, userId ?? ""));
   const owedToMe = sumSplits(splitsOwedToMe(expenses, userId ?? ""));
-  const profileOf = (id: string): Profile | undefined =>
-    profiles.find((p: Profile) => p.id === id);
+  const profileOf = (id: string) => profiles.find((p) => p.id === id);
 
   return (
     <div className="space-y-5">
@@ -139,14 +122,23 @@ function BalancesPage() {
 
       <section className="rounded-3xl border bg-card p-5 shadow-card">
         <h2 className="font-display text-base font-bold">Net position</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Includes each person's credit/advance balance.</p>
         <ul className="mt-3 divide-y">
           {profiles.map((p) => {
-            const value = net.get(p.id) ?? 0;
+            const rawValue = net.get(p.id) ?? 0;
+            const credit = creditBalance(creditEntries, p.id);
+            const value = rawValue + credit;
             return (
               <li key={p.id} className="flex items-center gap-3 py-3">
                 <UserAvatar profile={p} size="sm" />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">
                   {p.id === userId ? "You" : p.name}
+                  {Math.abs(credit) > 0.5 && (
+                    <span className="ml-1.5 text-[11px] font-normal text-primary">
+                      ({credit > 0 ? "+" : ""}
+                      {inrCompact(credit)} credit)
+                    </span>
+                  )}
                 </span>
                 <span
                   className={cn(
@@ -170,6 +162,10 @@ function BalancesPage() {
           Mark individual shares paid from the{" "}
           <Link to="/ledger" className="font-medium text-primary underline-offset-2 hover:underline">
             common ledger
+          </Link>
+          . Manage your credit balance from{" "}
+          <Link to="/profile" className="font-medium text-primary underline-offset-2 hover:underline">
+            your profile
           </Link>
           .
         </p>

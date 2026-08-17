@@ -21,6 +21,7 @@ import {
   useActivity,
   useAddExpense,
   useAddNotice,
+  useCreditLog,
   useDeleteNotice,
   useExpenses,
   useNotices,
@@ -37,7 +38,7 @@ import {
   readingDue,
   shortDate,
 } from "@/lib/room";
-import { inCycle, pendingDebts } from "@/lib/derive";
+import { inCycle, pendingDebts, creditBalance } from "@/lib/derive";
 import { netBalances } from "@/lib/settle";
 import { cn } from "@/lib/utils";
 
@@ -73,7 +74,10 @@ function Dashboard() {
 
   const debts = useMemo(() => pendingDebts(expenses), [expenses]);
   const net = useMemo(() => netBalances(debts), [debts]);
-  const myNet = userId ? (net.get(userId) ?? 0) : 0;
+  const { data: creditEntries = [] } = useCreditLog();
+  const myCredit = userId ? creditBalance(creditEntries, userId) : 0;
+  const rawNet = userId ? (net.get(userId) ?? 0) : 0;
+  const myNet = rawNet + myCredit;
 
   const cycleSpend = expenses
     .filter((e) => inCycle(e.created_at, cycle.start, cycle.end))
@@ -157,6 +161,11 @@ function Dashboard() {
                 ? "owed to you, net of everything"
                 : "you owe, net of everything"}
           </p>
+          {Math.abs(myCredit) > 0.5 && (
+            <p className="mt-1 text-[11px] text-primary">
+              includes {inrCompact(Math.abs(myCredit))} {myCredit > 0 ? "credit" : "credit used"}
+            </p>
+          )}
         </Link>
         <div className="rounded-3xl border bg-card p-4 shadow-soft">
           <p className="text-xs font-semibold text-muted-foreground">Room spend this cycle</p>

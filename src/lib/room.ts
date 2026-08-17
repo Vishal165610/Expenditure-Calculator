@@ -202,6 +202,18 @@ export function isValidUpiId(value: string) {
 }
 
 /**
+ * Strips characters that can survive a copy-paste into the UPI ID field but silently
+ * break the deep link — zero-width spaces, non-breaking spaces, stray newlines/tabs —
+ * without altering visibly-typed characters.
+ */
+export function sanitizeUpiId(value: string) {
+  return value
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, "")
+    .trim();
+}
+
+/**
  * Builds a `upi://pay` deep link per the NPCI UPI linking spec.
  * Opens the Android UPI app picker (GPay / PhonePe / Paytm / etc.) when tapped from a PWA.
  *
@@ -215,7 +227,7 @@ export function buildUpiLink(input: {
   amount: number;
   note?: string;
 }) {
-  const pa = input.payeeVpa.trim();
+  const pa = sanitizeUpiId(input.payeeVpa);
   const parts = [
     `pa=${pa}`,
     `pn=${encodeURIComponent(input.payeeName)}`,

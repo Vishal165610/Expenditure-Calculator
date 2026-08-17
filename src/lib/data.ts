@@ -17,6 +17,7 @@ export type Split = {
   status: string;
   requested_at: string | null;
   paid_at: string | null;
+  proof_url: string | null;
   created_at: string;
 };
 
@@ -293,23 +294,37 @@ export function useAddExpense(userId: string, userName: string) {
 export function useMarkPaid(userId: string, userName: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { split: Split; expense: Expense }) => {
+    mutationFn: async (input: { split: Split; expense: Expense; proof?: File | null }) => {
+      let proofUrl: string | null = null;
+      if (input.proof) {
+        const path = `${userId}/${Date.now()}-${input.proof.name.replace(/[^\w.-]/g, "_")}`;
+        const up = await db.storage.from("payment-proofs").upload(path, input.proof);
+        if (up.error) throw up.error;
+        proofUrl = path;
+      }
+
       const { error } = await db
         .from("expense_splits")
-        .update({ status: "paid", paid_at: new Date().toISOString() })
+        .update({
+          status: "paid",
+          paid_at: new Date().toISOString(),
+          ...(proofUrl ? { proof_url: proofUrl } : {}),
+        })
         .eq("id", input.split.id);
       if (error) throw error;
       await logActivity(
         userId,
         "marked_paid",
-        `${userName} settled ₹${Math.round(Number(input.split.amount_owed))} for "${input.expense.title}"`,
+        `${userName} settled ₹${Math.round(Number(input.split.amount_owed))} for "${input.expense.title}"${
+          proofUrl ? " with proof attached" : ""
+        }`,
         input.expense.id,
       );
       await notify(
         input.expense.paid_by,
         userId,
         "paid",
-        `${userName} marked "${input.expense.title}" as paid`,
+        `${userName} marked "${input.expense.title}" as paid${proofUrl ? " (proof attached)" : ""}`,
       );
     },
     onSuccess: () => {
@@ -495,5 +510,72 @@ export function useDeletePersonalExpense(userId: string) {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["personal-expenses", userId] }),
+  });
+}
+
+/** Signed URL for a payment-proof screenshot uploaded when marking a split as paid. */
+export async function proofUrl(path: string) {
+  const { data } = await db.storage.from("payment-proofs").createSignedUrl(path, 60 * 60);
+  return data?.signedUrl ?? null;
+}
+
+export type CreditEntry = {
+  id: string;
+  user_id: string;
+  amount: number;
+  note: string | null;
+  created_at: string;
+};
+
+/**
+ * The full credit ledger across every roommate — small dataset, kept visible to all
+ * (not just the owner) since it affects shared settlement and everyone should be able
+ * to see why a balance shifted. Only the owner can add/remove their own entries (RLS).
+ */
+export function useCreditLog() {
+  return useQuery({
+    queryKey: ["credit-log"],
+    queryFn: async (): Promise<CreditEntry[]> => {
+      const { data, error } = await db
+        .from("credit_log")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useAddCredit(userId: string, userName: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { amount: number; note?: string }) => {
+      const { error } = await db
+        .from("credit_log")
+        .insert({ user_id: userId, amount: input.amount, note: input.note ?? null });
+      if (error) throw error;
+      await logActivity(
+        userId,
+        "credit",
+        `${userName} ${input.amount > 0 ? "added" : "used"} ₹${Math.abs(Math.round(input.amount))} of credit${
+          input.note ? ` — ${input.note}` : ""
+        }`,
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["credit-log"] });
+      qc.invalidateQueries({ queryKey: ["activity"] });
+    },
+  });
+}
+
+export function useDeleteCreditEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await db.from("credit_log").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["credit-log"] }),
   });
 }

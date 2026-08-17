@@ -19,6 +19,7 @@ import { UserAvatar } from "@/components/room/UserAvatar";
 import { useSession } from "@/hooks/use-session";
 import {
   receiptUrl,
+  proofUrl,
   useAddPersonalExpense,
   useDeletePersonalExpense,
   useExpenses,
@@ -120,6 +121,12 @@ function SharedLedgerTab({ userId }: { userId: string | null }) {
     else toast.error("Couldn't open that receipt.");
   };
 
+  const openProof = async (path: string) => {
+    const url = await proofUrl(path);
+    if (url) window.open(url, "_blank", "noopener");
+    else toast.error("Couldn't open that proof.");
+  };
+
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
@@ -180,7 +187,7 @@ function SharedLedgerTab({ userId }: { userId: string | null }) {
             userId={userId ?? ""}
             nameOf={nameOf}
             profiles={profiles}
-            onMarkPaid={(split) => markPaid.mutate({ split, expense })}
+            onMarkPaid={(split, proof) => markPaid.mutate({ split, expense, proof: proof ?? null })}
             onNudge={(split) => {
               requestPayment.mutate(
                 { split, expense },
@@ -188,6 +195,7 @@ function SharedLedgerTab({ userId }: { userId: string | null }) {
               );
             }}
             onReceipt={openReceipt}
+            onProof={openProof}
           />
         ))}
       </div>
@@ -203,19 +211,22 @@ function ExpenseCard({
   onMarkPaid,
   onNudge,
   onReceipt,
+  onProof,
 }: {
   expense: Expense;
   userId: string;
   nameOf: (id: string) => string;
   profiles: { id: string; name: string; avatar_color: string; username: string }[];
-  onMarkPaid: (split: Expense["expense_splits"][number]) => void;
+  onMarkPaid: (split: Expense["expense_splits"][number], proof?: File | null) => void;
   onNudge: (split: Expense["expense_splits"][number]) => void;
   onReceipt: (path: string) => void;
+  onProof: (path: string) => void;
 }) {
   const splits = expense.expense_splits ?? [];
   const payer = profiles.find((p) => p.id === expense.paid_by);
   const pending = splits.filter((s) => s.status !== "paid" && s.owed_by !== expense.paid_by);
   const overdue = pending.some((s) => isOverdue(expense.created_at, s.status));
+  const [proofFiles, setProofFiles] = useState<Record<string, File | null>>({});
 
   return (
     <article
@@ -263,10 +274,57 @@ function ExpenseCard({
                 {inrCompact(Number(split.amount_owed))}
               </span>
               <StatusBadge status={split.status} overdue={late} />
-              {split.status !== "paid" && isMine && expense.paid_by !== userId && (
-                <Button size="sm" className="h-7 rounded-full px-3" onClick={() => onMarkPaid(split)}>
-                  Mark paid
+              {split.status === "paid" && split.proof_url && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="View payment proof"
+                  title="View payment proof"
+                  className="size-7 rounded-full text-muted-foreground hover:text-primary"
+                  onClick={() => onProof(split.proof_url!)}
+                >
+                  <Paperclip className="size-3.5" />
                 </Button>
+              )}
+              {split.status !== "paid" && isMine && expense.paid_by !== userId && (
+                <>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    id={`proof-${split.id}`}
+                    className="hidden"
+                    onChange={(e) =>
+                      setProofFiles((prev) => ({ ...prev, [split.id]: e.target.files?.[0] ?? null }))
+                    }
+                  />
+                  <label htmlFor={`proof-${split.id}`}>
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "size-7 rounded-full",
+                        proofFiles[split.id] ? "text-primary" : "text-muted-foreground",
+                      )}
+                      title={
+                        proofFiles[split.id]
+                          ? `Attached: ${proofFiles[split.id]!.name}`
+                          : "Attach payment screenshot (optional)"
+                      }
+                    >
+                      <span>
+                        <Paperclip className="size-3.5" />
+                      </span>
+                    </Button>
+                  </label>
+                  <Button
+                    size="sm"
+                    className="h-7 rounded-full px-3"
+                    onClick={() => onMarkPaid(split, proofFiles[split.id])}
+                  >
+                    Mark paid
+                  </Button>
+                </>
               )}
               {split.status !== "paid" &&
                 expense.paid_by === userId &&
